@@ -31,7 +31,7 @@ def main(args):
     lm_configs = STORMWikiLMConfigs()
 
     mistral_kwargs = {
-        "model": "mistralai/Mistral-7B-Instruct-v0.2",
+        "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-fast",
         "port": args.port,
         "url": args.url,
         "stop": ('\n\n---',)  # dspy uses "\n\n---" to separate examples. Open models sometimes generate this.
