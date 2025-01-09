@@ -23,25 +23,54 @@ from dspy import Example
 from knowledge_storm import STORMWikiRunnerArguments, STORMWikiRunner, STORMWikiLMConfigs
 from knowledge_storm.lm import VLLMClient
 from knowledge_storm.rm import YouRM, BingSearch, BraveRM, SerperRM, DuckDuckGoSearchRM, TavilySearchRM, SearXNG
-from knowledge_storm.utils import load_api_key
 
 
-def main(args):
-    load_api_key(toml_file_path='secrets.toml')
+def storm(topic: str,  ## topic to research
+          inference_model: str, inference_url: str, inference_port: int,  ## llm inference related arguments
+          output_dir: str,  ## Output directory
+          max_conv_turn: int, max_perspective: int, search_top_k: int, max_thread_num: int,  ## hyperparameters for the pre-writing stage
+          retriever: str, retrieve_top_k: int,  ##  search related arguments
+          do_research: bool, do_generate_outline: bool, do_generate_article: bool, do_polish_article: bool,  ## pipeline stage related arguments
+          remove_duplicate: bool  ## polish step extra argument
+          ):
+    """
+    Run the STORM Wiki pipeline using an inference engine though openai API and a search engine API.
+    :param topic: The topic to research.
+    :param inference_model: The model to use for inference.
+    :param inference_url: The URL of the VLLM server.
+    :param inference_port: The port of the VLLM server.
+    :param output_dir: The directory to store the outputs.
+    :param max_conv_turn: Maximum number of questions in conversational question asking.
+    :param max_perspective: Maximum number of perspectives to consider in perspective-guided question asking.
+    :param search_top_k: Top k search results to consider for each search query.
+    :param max_thread_num: Maximum number of threads to use. The information seeking part and the article generation
+                            part can speed up by using multiple threads. Consider reducing it if keep getting "Exceed rate limit"
+                            error when calling LM API.
+    :param retriever: The search engine API to use for retrieving information.
+    :param retrieve_top_k: Top k collected references for each section title.
+    :param do_research: If True, simulate conversation to research the topic; otherwise, load the results.
+    :param do_generate_outline: If True, generate an outline for the topic; otherwise, load the results.
+    :param do_generate_article: If True, generate an article for the topic; otherwise, load the results.
+    :param do_polish_article: If True, polish the article by adding a summarization section and (optionally) removing
+                                duplicate content.
+    :param remove_duplicate: If True, remove duplicate content from the article, during polishing.
+    """
+
     lm_configs = STORMWikiLMConfigs()
 
-    mistral_kwargs = {
-        "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-fast",
-        "port": args.port,
-        "url": args.url,
+    vllm_kwargs = {
+        "model": inference_model,
+        "port": inference_port,
+        "url": inference_url,
+        "api_key": os.getenv("NEBIUS_API_KEY"),
         "stop": ('\n\n---',)  # dspy uses "\n\n---" to separate examples. Open models sometimes generate this.
     }
 
-    conv_simulator_lm = VLLMClient(max_tokens=500, **mistral_kwargs)
-    question_asker_lm = VLLMClient(max_tokens=500, **mistral_kwargs)
-    outline_gen_lm = VLLMClient(max_tokens=400, **mistral_kwargs)
-    article_gen_lm = VLLMClient(max_tokens=700, **mistral_kwargs)
-    article_polish_lm = VLLMClient(max_tokens=4000, **mistral_kwargs)
+    conv_simulator_lm = VLLMClient(max_tokens=500, **vllm_kwargs)
+    question_asker_lm = VLLMClient(max_tokens=500, **vllm_kwargs)
+    outline_gen_lm = VLLMClient(max_tokens=400, **vllm_kwargs)
+    article_gen_lm = VLLMClient(max_tokens=700, **vllm_kwargs)
+    article_polish_lm = VLLMClient(max_tokens=4000, **vllm_kwargs)
 
     lm_configs.set_conv_simulator_lm(conv_simulator_lm)
     lm_configs.set_question_asker_lm(question_asker_lm)
@@ -50,16 +79,17 @@ def main(args):
     lm_configs.set_article_polish_lm(article_polish_lm)
 
     engine_args = STORMWikiRunnerArguments(
-        output_dir=args.output_dir,
-        max_conv_turn=args.max_conv_turn,
-        max_perspective=args.max_perspective,
-        search_top_k=args.search_top_k,
-        max_thread_num=args.max_thread_num,
+        output_dir=output_dir,
+        max_conv_turn=max_conv_turn,
+        max_perspective=max_perspective,
+        search_top_k=search_top_k,
+        max_thread_num=max_thread_num,
+        retrieve_top_k=retrieve_top_k
     )
 
     # STORM is a knowledge curation system which consumes information from the retrieval module.
     # Currently, the information source is the Internet and we use search engine API as the retrieval module.
-    match args.retriever:
+    match retriever:
         case 'bing':
             rm = BingSearch(bing_search_api=os.getenv('BING_SEARCH_API_KEY'), k=engine_args.search_top_k)
         case 'you':
@@ -75,7 +105,7 @@ def main(args):
         case 'searxng':
             rm = SearXNG(searxng_api_key=os.getenv('SEARXNG_API_KEY'), k=engine_args.search_top_k)
         case _:
-             raise ValueError(f'Invalid retriever: {args.retriever}. Choose either "bing", "you", "brave", "duckduckgo", "serper", "tavily", or "searxng"')
+             raise ValueError(f'Invalid retriever: {retriever}. Choose either "bing", "you", "brave", "duckduckgo", "serper", "tavily", or "searxng"')
 
     runner = STORMWikiRunner(engine_args, lm_configs, rm)
 
@@ -135,13 +165,13 @@ def main(args):
     )
     runner.storm_article_generation.section_gen.write_section.demos = [write_section_example]
 
-    topic = input('Topic: ')
     runner.run(
         topic=topic,
-        do_research=args.do_research,
-        do_generate_outline=args.do_generate_outline,
-        do_generate_article=args.do_generate_article,
-        do_polish_article=args.do_polish_article,
+        do_research=do_research,
+        do_generate_outline=do_generate_outline,
+        do_generate_article=do_generate_article,
+        do_polish_article=do_polish_article,
+        remove_duplicate=remove_duplicate
     )
     runner.post_run()
     runner.summary()
@@ -154,7 +184,7 @@ if __name__ == '__main__':
                         help='URL of the VLLM server.')
     parser.add_argument('--port', type=int, default=8000,
                         help='Port of the VLLM server.')
-    parser.add_argument('--output-dir', type=str, default='./results/mistral_7b',
+    parser.add_argument('--output-dir', type=str, default='./results/output',
                         help='Directory to store the outputs.')
     parser.add_argument('--max-thread-num', type=int, default=3,
                         help='Maximum number of threads to use. The information seeking part and the article generation'
@@ -185,4 +215,22 @@ if __name__ == '__main__':
     parser.add_argument('--remove-duplicate', action='store_true',
                         help='If True, remove duplicate content from the article.')
 
-    main(parser.parse_args())
+    arguments = parser.parse_args()
+
+    storm(topic="wireless capable audiophile headsets",
+          inference_model="meta-llama/Meta-Llama-3.1-70B-Instruct-fast",
+          inference_url=arguments.url,
+          inference_port=arguments.port,
+          output_dir=arguments.output_dir,
+          max_conv_turn=arguments.max_conv_turn,
+          max_perspective=arguments.max_perspective,
+          search_top_k=arguments.search_top_k,
+          max_thread_num=arguments.max_thread_num,
+          retriever=arguments.retriever,
+          retrieve_top_k=arguments.retrieve_top_k,
+          do_research=arguments.do_research,
+          do_generate_outline=arguments.do_generate_outline,
+          do_generate_article=arguments.do_generate_article,
+          do_polish_article=arguments.do_polish_article,
+          remove_duplicate=arguments.remove_duplicate
+          )
