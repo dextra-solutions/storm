@@ -1,8 +1,8 @@
 """
-STORM Wiki pipeline powered by Mistral-7B-Instruct-v0.2 hosted by VLLM server and You.com search engine.
+STORM Wiki pipeline powered by a VLLM server and a search engine.
 You need to set up the following environment variables to run this script:
-    - YDC_API_KEY: You.com API key; BING_SEARCH_API_KEY: Bing Search API key, SERPER_API_KEY: Serper API key, BRAVE_API_KEY: Brave API key, or TAVILY_API_KEY: Tavily API key
-You also need to have a VLLM server running with the Mistral-7B-Instruct-v0.2 model. Specify `--url` and `--port` accordingly.
+    - INFERENCE_API_KEY: API key for the inference model.
+    - SEARCH_API_KEY: API key for the search engine.
 
 Output will be structured as below
 args.output_dir/
@@ -34,7 +34,7 @@ def storm(topic: str,  ## topic to research
           remove_duplicate: bool  ## polish step extra argument
           ):
     """
-    Run the STORM Wiki pipeline using an inference engine though openai API and a search engine API.
+    Run the STORM Wiki pipeline using an inference engine hosted by VLLM and a search engine API.
     :param topic: The topic to research.
     :param inference_model: The model to use for inference.
     :param inference_url: The URL of the VLLM server.
@@ -62,7 +62,7 @@ def storm(topic: str,  ## topic to research
         "model": inference_model,
         "port": inference_port,
         "url": inference_url,
-        "api_key": os.getenv("NEBIUS_API_KEY"),
+        "api_key": os.getenv("INFERENCE_API_KEY"),
         "stop": ('\n\n---',)  # dspy uses "\n\n---" to separate examples. Open models sometimes generate this.
     }
 
@@ -91,19 +91,19 @@ def storm(topic: str,  ## topic to research
     # Currently, the information source is the Internet and we use search engine API as the retrieval module.
     match retriever:
         case 'bing':
-            rm = BingSearch(bing_search_api=os.getenv('BING_SEARCH_API_KEY'), k=engine_args.search_top_k)
+            rm = BingSearch(bing_search_api=os.getenv('SEARCH_API_KEY'), k=engine_args.search_top_k)
         case 'you':
-             rm = YouRM(ydc_api_key=os.getenv('YDC_API_KEY'), k=engine_args.search_top_k)
+             rm = YouRM(ydc_api_key=os.getenv('SEARCH_API_KEY'), k=engine_args.search_top_k)
         case 'brave':
-            rm = BraveRM(brave_search_api_key=os.getenv('BRAVE_API_KEY'), k=engine_args.search_top_k)
+            rm = BraveRM(brave_search_api_key=os.getenv('SEARCH_API_KEY'), k=engine_args.search_top_k)
         case 'duckduckgo':
             rm = DuckDuckGoSearchRM(k=engine_args.search_top_k, safe_search='On', region='us-en')
         case 'serper':
-            rm = SerperRM(serper_search_api_key=os.getenv('SERPER_API_KEY'), query_params={'autocorrect': True, 'num': 10, 'page': 1})
+            rm = SerperRM(serper_search_api_key=os.getenv('SEARCH_API_KEY'), query_params={'autocorrect': True, 'num': 10, 'page': 1})
         case 'tavily':
-            rm = TavilySearchRM(tavily_search_api_key=os.getenv('TAVILY_API_KEY'), k=engine_args.search_top_k, include_raw_content=True)
+            rm = TavilySearchRM(tavily_search_api_key=os.getenv('SEARCH_API_KEY'), k=engine_args.search_top_k, include_raw_content=True)
         case 'searxng':
-            rm = SearXNG(searxng_api_key=os.getenv('SEARXNG_API_KEY'), k=engine_args.search_top_k)
+            rm = SearXNG(searxng_api_key=os.getenv('SEARCH_API_KEY'), k=engine_args.search_top_k)
         case _:
              raise ValueError(f'Invalid retriever: {retriever}. Choose either "bing", "you", "brave", "duckduckgo", "serper", "tavily", or "searxng"')
 
@@ -184,6 +184,8 @@ if __name__ == '__main__':
                         help='URL of the VLLM server.')
     parser.add_argument('--port', type=int, default=8000,
                         help='Port of the VLLM server.')
+    parser.add_argument('--model', type=str, default='meta-llama/Meta-Llama-3.1-70B-Instruct-fast',
+                        help='Model to use for inference.')
     parser.add_argument('--output-dir', type=str, default='./results/output',
                         help='Directory to store the outputs.')
     parser.add_argument('--max-thread-num', type=int, default=3,
@@ -218,7 +220,7 @@ if __name__ == '__main__':
     arguments = parser.parse_args()
 
     storm(topic="wireless capable audiophile headsets",
-          inference_model="meta-llama/Meta-Llama-3.1-70B-Instruct-fast",
+          inference_model=arguments.model,
           inference_url=arguments.url,
           inference_port=arguments.port,
           output_dir=arguments.output_dir,
