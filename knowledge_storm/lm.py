@@ -513,9 +513,9 @@ class VLLMClient(dspy.dsp.LM):
         self,
         model,
         port,
+        api_key,
         model_type: Literal["chat", "text"] = "text",
         url="http://localhost",
-        api_key=os.getenv("NEBIUS_API_KEY"),
         **kwargs,
     ):
         """Check out https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html for more information."""
